@@ -1,0 +1,197 @@
+diff --git a/.agent/README.md b/.agent/README.md
+index 7089455e..9018a451 100644
+--- a/.agent/README.md
++++ b/.agent/README.md
+@@ -6,6 +6,8 @@ Central index for Sygenti docs.
+ 
+ - **App Feature Inventory (Apr 26, 2026)**: Map of features from docs, FE pages, BE tRPC routers, shared packages, tests. See [System/app_feature_inventory_apr_2026.md](./System/app_feature_inventory_apr_2026.md).
+ 
++- **Sygenti blind spot diagnostic (Aug 20, 2026)** — new public, unauthenticated `/diagnostic` marketing tool: fifteen questions on one named initiative → pillar bands (Organisation/Team/Self), up to three "mirror" contradictions, an archetype headline, three recommendations, one ask. Pure scoring/mirror/archetype logic lives in `@pulse/shared/diagnostic` (framework-agnostic, `bun:test`, 59 tests), computed client-side for an instant network-independent reveal and recomputed server-side as the stored system of record. New `marketing` Postgres schema, single `diagnostic_submissions` table upserted by session id (migration `0313`, hand-authored then tool-verified zero-drift against a real `drizzle-kit generate` once `bun install` unstalled). BE mirrors `ContactModule`'s public/rate-limited/no-RBAC pattern exactly (`DiagnosticModule`, oRPC branch `diagnostic`). `/diagnostic` had to be added to the AuthKit middleware's public-path allowlist or it 307s to `/`. See [Tasks/2026-08-20-sygenti-blind-spot-diagnostic.md](./Tasks/2026-08-20-sygenti-blind-spot-diagnostic.md).
++
+ - **Global workflows: readiness + siblings (Aug 20, 2026)** — `readiness_score`, `pm_agent`, `signal_reasoning`, and `memory_consolidation` are code-owned global workflows (pause / inspect / redrive) on the same `PipelineRunner` ledger as Signals and Knowledge. Producers stay intake-only. See [Tasks/2026-08-20-global-workflows-readiness-siblings.md](./Tasks/2026-08-20-global-workflows-readiness-siblings.md) + [System/database_schema.md](./System/database_schema.md) (global pipeline section).
+ 
+ - **Sygenti Slack-like channels, reply threads, files (Aug 20, 2026)** — Remaps Sygenti `/inbox` from the 18/19 Aug "thread-as-room" POC onto Slack vocabulary: **channel** = room (left rail, **New channel** CTA), **thread** = reply branch (`?thread=`, never a rail CTA). Private channels, invites, and the server `@Sygenti` mention gate work against migration `0314`. `SygentiService.createThread` is removed (channels are the only top-level room; `createReplyThread` is the sole thread-creation path) and `assertChannelAccess` drops its `write?: boolean` param. `sygentiThreadSchema` gained a required `replyCount: number` field — the FE reply affordance ("Reply in thread" / "View thread" / "N replies") reads it straight off the wire instead of computing it client-side. The channel message stream got a full Slack-anatomy redesign — `SygentiMessageRow` + `sygenti-message-grouping.ts` (5-minute/same-day/same-author grouping, sticky day dividers, hover-revealed reply toolbar, `AGENT` badge), delegated to from `AgenticMessage` via `SygentiChannelChromeContext` (defaults `null`, so every non-Sygenti chat surface is untouched); the rail's `#` glyph is now `aria-hidden`. Channel Files stays view-only. See [Tasks/2026-08-20-sygenti-slack-threads.md](./Tasks/2026-08-20-sygenti-slack-threads.md) + [System/sygenti_poc.md](./System/sygenti_poc.md).
+diff --git a/be/src/core/config/config.service.ts b/be/src/core/config/config.service.ts
+index 990d036f..94f74297 100644
+--- a/be/src/core/config/config.service.ts
++++ b/be/src/core/config/config.service.ts
+@@ -37,6 +37,10 @@ export class ConfigService {
+     return this.config.COLLAB_URL;
+   }
+ 
++  get diagnosticWebhookUrl(): string | undefined {
++    return this.config.DIAGNOSTIC_WEBHOOK_URL;
++  }
++
+   /**
+    * HS256 secret used to sign collab client tokens. Never log this value.
+    */
+diff --git a/be/src/core/config/env.validation.ts b/be/src/core/config/env.validation.ts
+index 0c8d1d71..726a2342 100644
+--- a/be/src/core/config/env.validation.ts
++++ b/be/src/core/config/env.validation.ts
+@@ -54,6 +54,12 @@ const baseEnvSchema = z.object({
+   // true, the three COLLAB_* values below are required (refine at the bottom).
+   REALTIME_ENABLED: z.enum(['true', 'false']).default('true'),
+ 
++  // Fire-and-forget POST target for a completed Blind Spot Diagnostic
++  // submission (full row payload), so it can be routed to a CRM without a
++  // rebuild. Unset means the webhook step is skipped entirely — storage is
++  // the source of truth either way.
++  DIAGNOSTIC_WEBHOOK_URL: z.string().url().optional(),
++
+   // Public origin of the collab server, e.g. `wss://collab.pulseios.com`.
+   // Handed to the browser in the negotiate response.
+   COLLAB_URL: z.string().url().optional(),
+diff --git a/be/src/orpc/orpc.module.ts b/be/src/orpc/orpc.module.ts
+index 3a810e38..cdb55082 100644
+--- a/be/src/orpc/orpc.module.ts
++++ b/be/src/orpc/orpc.module.ts
+@@ -63,6 +63,7 @@ import { MondayIntegrationModule } from '@/modules/monday-integration/monday-int
+ import { CompanyConfigModule } from '@/modules/organization/company-config/company-config.module';
+ import { ContactModule } from '@/modules/organization/contact/contact.module';
+ import { DepartmentModule } from '@/modules/organization/department/department.module';
++import { DiagnosticModule } from '@/modules/organization/diagnostic/diagnostic.module';
+ import { HolidaysModule } from '@/modules/organization/holidays/holidays.module';
+ import { MemberDayRateModule } from '@/modules/organization/member-day-rate/member-day-rate.module';
+ import { MemberSkillsModule } from '@/modules/organization/member-skills/member-skills.module';
+@@ -128,6 +129,7 @@ import { CompanyConfigOrpcController } from './routers/company-config.orpc';
+ import { ContactOrpcController } from './routers/contact.orpc';
+ import { DashboardOrpcController } from './routers/dashboard.orpc';
+ import { DepartmentOrpcController } from './routers/department.orpc';
++import { DiagnosticOrpcController } from './routers/diagnostic.orpc';
+ import { DocumentationOrpcController } from './routers/documentation.orpc';
+ import { ExternalCalendarOrpcController } from './routers/external-calendar.orpc';
+ import { GithubIntegrationOrpcController } from './routers/github-integration.orpc';
+@@ -230,6 +232,7 @@ const DOMAIN_ROUTERS: Type<DomainOrpcRouter>[] = [
+   WorkspaceOrpcController,
+   CompanyConfigOrpcController,
+   ContactOrpcController,
++  DiagnosticOrpcController,
+   HolidaysOrpcController,
+   MemberDayRateOrpcController,
+   MemberSkillsOrpcController,
+@@ -346,6 +349,7 @@ const DOMAIN_ROUTERS: Type<DomainOrpcRouter>[] = [
+     PermissionsModule,
+     CompanyConfigModule,
+     ContactModule,
++    DiagnosticModule,
+     HolidaysModule,
+     MemberDayRateModule,
+     MemberSkillsModule,
+diff --git a/fe/components/shared/nav-links.ts b/fe/components/shared/nav-links.ts
+index 7b83f956..a1e854ad 100644
+--- a/fe/components/shared/nav-links.ts
++++ b/fe/components/shared/nav-links.ts
+@@ -62,6 +62,11 @@ export const RESOURCES_MENU: PublicNavMenu = {
+       href: '/blog',
+       description: 'Insights, updates, and workforce intelligence.',
+     },
++    {
++      label: 'Blind spot diagnostic',
++      href: '/diagnostic',
++      description: 'Fifteen questions about one initiative. A free reading, no sign up required.',
++    },
+   ],
+ } as const;
+ 
+diff --git a/fe/envs/index.ts b/fe/envs/index.ts
+index bb3c1a5f..46211fb1 100644
+--- a/fe/envs/index.ts
++++ b/fe/envs/index.ts
+@@ -90,6 +90,12 @@ export const env = createEnv({
+      * exists for validation/typing, not as the read path.
+      */
+     NEXT_PUBLIC_APP_ENV: z.enum(['local', 'uat', 'production']).default('local'),
++    /**
++     * Where the diagnostic's "Book thirty minutes" button links to. Falls
++     * back to the existing /contact page when unset, so the button always
++     * works — override with a direct scheduling link if desired.
++     */
++    NEXT_PUBLIC_DIAGNOSTIC_BOOKING_URL: z.string().optional(),
+   },
+ 
+   /**
+@@ -127,6 +133,7 @@ export const env = createEnv({
+     NEXT_PUBLIC_POSTHOG_ASSET_HOST: process.env.NEXT_PUBLIC_POSTHOG_ASSET_HOST,
+     NEXT_PUBLIC_POSTHOG_SESSION_REPLAY: process.env.NEXT_PUBLIC_POSTHOG_SESSION_REPLAY,
+     NEXT_PUBLIC_APP_ENV: process.env.NEXT_PUBLIC_APP_ENV,
++    NEXT_PUBLIC_DIAGNOSTIC_BOOKING_URL: process.env.NEXT_PUBLIC_DIAGNOSTIC_BOOKING_URL,
+   },
+ 
+   /**
+diff --git a/fe/lib/workos/middleware.ts b/fe/lib/workos/middleware.ts
+index 820b4ef3..1071b524 100644
+--- a/fe/lib/workos/middleware.ts
++++ b/fe/lib/workos/middleware.ts
+@@ -32,6 +32,7 @@ const PUBLIC_PATH_PREFIXES = new Set([
+   '/solutions',
+   '/blog',
+   '/docs',
++  '/diagnostic',
+   '/auth',
+   '/join/accept-invite',
+   // WorkOS AuthKit callback (handleAuth) — must be reachable pre-session.
+diff --git a/packages/db/migrations/meta/_journal.json b/packages/db/migrations/meta/_journal.json
+index de825fd4..7123f812 100644
+--- a/packages/db/migrations/meta/_journal.json
++++ b/packages/db/migrations/meta/_journal.json
+@@ -2185,6 +2185,13 @@
+       "when": 1787220465860,
+       "tag": "0314_parallel_brood",
+       "breakpoints": true
++    },
++    {
++      "idx": 315,
++      "version": "7",
++      "when": 1787220466655,
++      "tag": "0315_add_diagnostic_submissions",
++      "breakpoints": true
+     }
+   ]
+ }
+\ No newline at end of file
+diff --git a/packages/db/src/schema.ts b/packages/db/src/schema.ts
+index 86a845f8..c6305b30 100644
+--- a/packages/db/src/schema.ts
++++ b/packages/db/src/schema.ts
+@@ -46,6 +46,7 @@ import type {
+ 
+ export * from './ai-ops-schema';
+ export * from './integration-schema';
++export * from './marketing-schema';
+ export * from './pipeline-schema';
+ export * from './system-admin-schema';
+ 
+diff --git a/packages/shared/package.json b/packages/shared/package.json
+index 94f1bd94..8b4c797d 100644
+--- a/packages/shared/package.json
++++ b/packages/shared/package.json
+@@ -13,6 +13,7 @@
+     "./ai-credits/feature-labels": "./src/ai-credits/feature-labels.ts",
+     "./ai-credits/resolve-dictation-engine": "./src/ai-credits/resolve-dictation-engine.ts",
+     "./constants": "./src/constants/index.ts",
++    "./diagnostic": "./src/diagnostic/index.ts",
+     "./constants/ai": "./src/constants/ai.ts",
+     "./constants/assistant-skills": "./src/constants/assistant-skills.ts",
+     "./constants/backlog": "./src/constants/backlog.ts",
+diff --git a/packages/shared/src/orpc/contract.ts b/packages/shared/src/orpc/contract.ts
+index 4e677374..82edbd9e 100644
+--- a/packages/shared/src/orpc/contract.ts
++++ b/packages/shared/src/orpc/contract.ts
+@@ -28,6 +28,7 @@ import { companyConfigContract } from './contracts/company-config.contract';
+ import { contactContract } from './contracts/contact.contract';
+ import { dashboardContract } from './contracts/dashboard.contract';
+ import { departmentContract } from './contracts/department.contract';
++import { diagnosticContract } from './contracts/diagnostic.contract';
+ import { documentationContract } from './contracts/documentation.contract';
+ import { externalCalendarContract } from './contracts/external-calendar.contract';
+ import { githubIntegrationContract } from './contracts/github-integration.contract';
+@@ -156,6 +157,7 @@ const orpcContractTree = {
+   workspace: workspaceContract,
+   companyConfig: companyConfigContract,
+   contact: contactContract,
++  diagnostic: diagnosticContract,
+   holidays: holidaysContract,
+   memberDayRate: memberDayRateContract,
+   memberSkills: memberSkillsContract,

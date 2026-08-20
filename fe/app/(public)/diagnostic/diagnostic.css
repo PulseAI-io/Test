@@ -1,0 +1,79 @@
+/*
+ * Scoped design tokens for the Initiative Blind Spot Diagnostic (§11 of the
+ * build spec). Deliberately NOT registered on global :root or @theme — this
+ * page has its own bespoke identity, distinct from the shadcn tokens the
+ * rest of the marketing site uses, so everything here lives under `.diag`
+ * and is referenced with Tailwind arbitrary values (e.g. `bg-[var(--cream)]`).
+ */
+.diag {
+  --cream: #f7f6f2;
+  --card: #fdfcfa;
+  --alt: #f1efe7;
+  --ink: #0d3d45;
+  --ink2: #31494e;
+  --mut: #6b7a78;
+  --teal: #147a6e;
+  --mint: #1db8a4;
+  --tint: #e3f0ed;
+  --tintb: #c6dfd9;
+  --line: #dad6cc;
+  --amb: #b5761a;
+  --ambw: #f8f1e4;
+  --red: #b8382e;
+
+  background: var(--cream);
+  color: var(--ink);
+  min-height: 100vh;
+}
+
+.diag-question {
+  font-family: var(--font-display), Georgia, serif;
+}
+
+.diag-mono {
+  font-family: var(--font-diag-mono), ui-monospace, monospace;
+  letter-spacing: 0.04em;
+}
+
+.diag-sans {
+  font-family: var(--font-diag-sans), system-ui, sans-serif;
+}
+
+/* Spine: a single vertical line that draws downward with progress and gets
+   a node at each pillar boundary. Drawn via stroke-dashoffset on an SVG
+   path sized to the viewport height of the question column. */
+.diag-spine-path {
+  transition: stroke-dashoffset 500ms ease;
+}
+
+.diag-question-enter {
+  animation: diag-fade-up 320ms ease both;
+}
+
+@keyframes diag-fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .diag-spine-path {
+    transition: none;
+  }
+  .diag-question-enter {
+    animation: diag-fade-only 1ms both;
+  }
+  @keyframes diag-fade-only {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+}
